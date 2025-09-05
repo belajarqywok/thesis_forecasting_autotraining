@@ -35,7 +35,7 @@ class ForecastingBiGRUTrainer:
     csv_file:           str,
     model_registry:     str,
     sequence_length:    int = 60, 
-    hidden_sizes: List[int] = [128, 64],
+    hidden_sizes: List[int] = [256, 128, 64],
     batch_size:         int = 20, 
     epochs:             int = 25,
     learning_rate:    float = 0.001,
