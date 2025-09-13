@@ -1,0 +1,118 @@
+name: Automated Training [Workflow - 8]
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+
+jobs:
+  training_workloads:
+    name: Training Workloads
+    runs-on: ubuntu-latest
+  
+
+    strategy:
+      matrix:
+        python-version: [3.11]
+
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      DATASET_NAME: indonesia_stocks
+      MODEL_REGISTRY_NAME: stock_models_8
+      HF_USERNAME: qywok
+
+    steps:
+      - name: Set Global Directory
+        run: git config --global --add safe.directory /github/workspace
+
+      - uses: actions/checkout@v3     
+        with:
+          lfs: true
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Check Disk System
+        id: check_disk_system
+        run: df -h
+
+      - name: Get Current Date
+        id: get_current_date
+        run: |
+          full_date=$(date)
+          echo "FULL_DATE=${full_date}" >> $GITHUB_ENV
+
+          current_date=$(date +%d)
+          current_date=$((10#$current_date + 1))
+          echo "CURRENT_DATE=${current_date}" >> $GITHUB_ENV
+
+          full_current_date=$(date +'%Y-%m-%d')
+          echo "FULL_CURRENT_DATE=${full_current_date}" >> $GITHUB_ENV
+
+      - name: Read Date and Training Schedule
+        id: read_date_training_schedule
+        run: |
+          echo "DATE_SCHEDULE=$(cat schedules/date.schedule)" \
+            >> $GITHUB_ENV
+          echo "TRAINING_SCHEDULE=$(cat schedules/training.schedule)" \
+            >> $GITHUB_ENV
+
+      - name: Cloning Model from Hugging Face
+        id: cloning_model
+        if: env.DATE_SCHEDULE == env.FULL_CURRENT_DATE && env.TRAINING_SCHEDULE == 'TRAIN_ON'
+        run: |
+          echo "[ CONDITION LOG ]: ${{ env.DATE_SCHEDULE }} - ${{ env.FULL_CURRENT_DATE }} - ${{ env.TRAINING_SCHEDULE }}"
+          git clone https://huggingface.co/qywok/stock_models_8
+
+      - name: Cloning Datasets From Hugging Face
+        id: cloning_dataset
+        if: env.DATE_SCHEDULE == env.FULL_CURRENT_DATE && env.TRAINING_SCHEDULE == 'TRAIN_ON'
+        run: |
+          echo "[ CONDITION LOG ]: ${{ env.DATE_SCHEDULE }} - ${{ env.FULL_CURRENT_DATE }} - ${{ env.TRAINING_SCHEDULE }}"
+          git clone https://huggingface.co/datasets/$HF_USERNAME/$DATASET_NAME
+
+      - name: Cache pip
+        if: env.DATE_SCHEDULE == env.FULL_CURRENT_DATE && env.TRAINING_SCHEDULE == 'TRAIN_ON'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements/linux/workload/ubuntu.production.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Requirements Install
+        id: requirements_install
+        if: env.DATE_SCHEDULE == env.FULL_CURRENT_DATE && env.TRAINING_SCHEDULE == 'TRAIN_ON'
+        run: |
+          echo "[ CONDITION LOG ]: ${{ env.DATE_SCHEDULE }} - ${{ env.FULL_CURRENT_DATE }} - ${{ env.TRAINING_SCHEDULE }}"
+          pip install -r requirements/linux/workload/ubuntu.production.txt
+          pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu 
+
+      - name: Training Workloads
+        id: training_workloads
+        if: env.DATE_SCHEDULE == env.FULL_CURRENT_DATE && env.TRAINING_SCHEDULE == 'TRAIN_ON'
+        run: |
+          echo "[ CONDITION LOG ]: ${{ env.DATE_SCHEDULE }} - ${{ env.FULL_CURRENT_DATE }} - ${{ env.TRAINING_SCHEDULE }}"
+          python autotraining.py \
+            --workloads_json=workloads_8.json \
+            --model_registry=stock_models_8
+
+      - name: Ingest to Hugging Face Models
+        id: ingest_hf_model
+        if: env.DATE_SCHEDULE == env.FULL_CURRENT_DATE && env.TRAINING_SCHEDULE == 'TRAIN_ON'
+        run: |
+          echo "[ CONDITION LOG ]: ${{ env.DATE_SCHEDULE }} - ${{ env.FULL_CURRENT_DATE }} - ${{ env.TRAINING_SCHEDULE }}"
+          cd stock_models_8
+          git config --local user.email "alfariqyraihan@gmail.com"
+          git config --local user.name "qywok"
+          git add -A 
+          git diff-index --quiet HEAD || git commit -m "[ Ingest Date (GMT +0) ]: $FULL_DATE"
+          git push https://$HF_USERNAME:$HF_TOKEN@huggingface.co/$HF_USERNAME/$MODEL_REGISTRY_NAME main --force
+          cd .. && ls -al
+    
